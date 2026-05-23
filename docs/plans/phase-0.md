@@ -8,7 +8,7 @@
 
 | PRD says | Phase 0 ships | Why |
 |---|---|---|
-| API on VPS via PM2 + Nginx | Railway (Dockerfile) | Solo engineer, zero ops budget for Nginx tuning. Portable to VPS in Phase 1. |
+| API on VPS via PM2 + Nginx | Same — automated via `scripts/server/bootstrap.sh` and `scripts/server/deploy.sh` | Matches the PRD; see `docs/deploy-self-host.md`. |
 | Password reset functional end-to-end | Endpoints + DB tokens; email send stubbed to console | No email provider yet. Wire Resend/Postmark in Phase 1. |
 | Expo app via EAS internal distribution | Login screen wired through shared `api-client`; run via Expo Go | EAS pipeline = half a day of yak shave. Defer. |
 | OpenTelemetry traces exported | SDK initialized with console exporter | OTLP collector setup is Phase 1. Init pattern locks in now. |

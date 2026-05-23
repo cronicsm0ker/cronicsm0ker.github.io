@@ -21,19 +21,16 @@ This installs every workspace and generates the Prisma client (postinstall hooks
 
 Do these in one sitting before you start coding so credentials are ready when you need them.
 
-### Railway (API + Postgres + Redis)
-1. Create account at https://railway.com.
-2. Create a project called `roofops`.
-3. Add a **PostgreSQL 16** plugin. Copy `DATABASE_URL`.
-4. Add a **Redis 7** plugin (not used in Phase 0 but reserved). Copy `REDIS_URL`.
-5. Create a service from this GitHub repo, root directory `/`, Dockerfile path `apps/api/Dockerfile`. Railway will read `apps/api/railway.json` for build + start config.
-6. Create environments `dev` and `staging`. Per-environment vars:
-   - `JWT_SECRET` — generate with `openssl rand -base64 48`
-   - `DATABASE_URL`, `REDIS_URL` (auto-populated from plugins)
-   - `SENTRY_DSN` (from step below)
-   - `APP_WEB_URL` — your Cloudflare Pages URL
-   - `CORS_ORIGINS` — comma-separated, e.g. `https://roofops.pages.dev`
-   - `NODE_ENV=production`
+### Self-hosted VPS (API + Postgres + Redis)
+Follow `docs/deploy-self-host.md` for the full server bootstrap. In short:
+
+1. Provision a Debian 12 or Ubuntu 24.04 host (1–2 vCPU, 2–4 GB RAM is enough for Phase 0).
+2. Point an A record (e.g. `api.example.com`) at the host.
+3. SSH in, clone the repo, run `sudo ROOFOPS_DOMAIN=api.example.com bash scripts/server/bootstrap.sh`.
+4. Issue TLS: `sudo certbot --nginx -d api.example.com --redirect --agree-tos -m you@example.com`.
+5. First deploy: `sudo -iu roofops bash ~/app/scripts/server/deploy.sh`.
+
+The bootstrap installs Node 22, pnpm, PM2, Postgres 16, Redis, Nginx, certbot, ufw, and fail2ban; provisions the Postgres role/database; and writes `/etc/roofops/api.env` with a generated `JWT_SECRET` and DB URL. Edit that file to fill in `APP_WEB_URL`, `CORS_ORIGINS`, and `SENTRY_DSN`, then `pm2 reload roofops-api --update-env`.
 
 ### Cloudflare Pages (web)
 1. Create account at https://dash.cloudflare.com.

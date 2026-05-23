@@ -43,9 +43,13 @@ RoofOps — a TypeScript monorepo for a roofing/contractor operations platform. 
 5. Add `@roofops/api-client` methods consuming the same schemas.
 6. Add the web route and mobile screen.
 
+## Deployment
+
+- API runs on a self-hosted Linux VPS behind Nginx, managed by PM2 — see `docs/deploy-self-host.md`. Bootstrap with `scripts/server/bootstrap.sh`, deploy with `scripts/server/deploy.sh`.
+- Web ships as a static Vite build to Cloudflare Pages (or co-located on the same VPS — see the deploy doc).
+- Mobile via Expo Go in Phase 0; EAS internal distribution from Phase 1.
+
 ## Phase 0 deviations (active until Phase 1 starts)
 
-- API deploys to Railway, not the VPS in the PRD. Move to VPS in early Phase 1.
 - Password reset emails log to console; wire Resend/Postmark in Phase 1.
-- Mobile runs via Expo Go against staging; EAS internal distribution slips to Phase 1.
 - OTel exporter is console; OTLP collector in Phase 1.

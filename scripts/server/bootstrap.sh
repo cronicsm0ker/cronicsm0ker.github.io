@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+# RoofOps server bootstrap — run ONCE as root on a fresh Debian 12 / Ubuntu 24.04 LTS host.
+#
+#   curl -fsSL https://raw.githubusercontent.com/cronicsm0ker/cronicsm0ker.github.io/main/scripts/server/bootstrap.sh | sudo bash
+#
+# Or, after cloning the repo manually:
+#
+#   sudo bash scripts/server/bootstrap.sh
+#
+# Idempotent: re-runnable. Generated secrets are only created once and reused.
+
+set -euo pipefail
+
+# -------- configurable defaults (override via environment) --------
+ROOFOPS_USER="${ROOFOPS_USER:-roofops}"
+ROOFOPS_HOME="${ROOFOPS_HOME:-/home/${ROOFOPS_USER}}"
+ROOFOPS_APP_DIR="${ROOFOPS_APP_DIR:-${ROOFOPS_HOME}/app}"
+ROOFOPS_REPO_URL="${ROOFOPS_REPO_URL:-https://github.com/cronicsm0ker/cronicsm0ker.github.io.git}"
+ROOFOPS_BRANCH="${ROOFOPS_BRANCH:-main}"
+ROOFOPS_ENV_DIR="${ROOFOPS_ENV_DIR:-/etc/roofops}"
+ROOFOPS_API_PORT="${ROOFOPS_API_PORT:-3000}"
+ROOFOPS_DOMAIN="${ROOFOPS_DOMAIN:-}"
+PG_VERSION="${PG_VERSION:-16}"
+NODE_MAJOR="${NODE_MAJOR:-22}"
+DB_NAME="${DB_NAME:-roofops}"
+DB_USER="${DB_USER:-roofops}"
+
+require_root() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    echo "ERROR: this script must run as root (use sudo)." >&2
+    exit 1
+  fi
+}
+
+log() { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
+
+apt_install() {
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@"
+}
+
+generate_secret() { openssl rand -base64 48 | tr -d '\n'; }
+generate_password() { openssl rand -base64 32 | tr -d '/+=\n' | cut -c1-32; }
+
+ensure_user() {
+  if id -u "${ROOFOPS_USER}" >/dev/null 2>&1; then
+    log "User ${ROOFOPS_USER} already exists"
+  else
+    log "Creating user ${ROOFOPS_USER}"
+    useradd --create-home --shell /bin/bash "${ROOFOPS_USER}"
+  fi
+  install -d -o "${ROOFOPS_USER}" -g "${ROOFOPS_USER}" -m 0750 "${ROOFOPS_HOME}"
+}
+
+install_base_packages() {
+  log "Installing base packages"
+  apt-get update
+  apt_install \
+    ca-certificates curl gnupg lsb-release \
+    git build-essential pkg-config \
+    openssl ufw fail2ban \
+    nginx certbot python3-certbot-nginx
+}
+
+install_node() {
+  if command -v node >/dev/null 2>&1 && node -v | grep -q "^v${NODE_MAJOR}\."; then
+    log "Node $(node -v) already installed"
+  else
+    log "Installing Node ${NODE_MAJOR} from NodeSource"
+    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
+    apt_install nodejs
+  fi
+  corepack enable
+  corepack prepare pnpm@latest --activate
+}
+
+install_pm2() {
+  if command -v pm2 >/dev/null 2>&1; then
+    log "PM2 $(pm2 -v) already installed"
+  else
+    log "Installing PM2 globally"
+    npm install -g pm2@latest
+  fi
+}
+
+install_postgres() {
+  if command -v psql >/dev/null 2>&1 && psql --version | grep -q "${PG_VERSION}"; then
+    log "PostgreSQL ${PG_VERSION} already installed"
+  else
+    log "Installing PostgreSQL ${PG_VERSION}"
+    install -d /etc/apt/keyrings
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg
+    local codename
+    codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+    echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list
+    apt-get update
+    apt_install "postgresql-${PG_VERSION}" "postgresql-client-${PG_VERSION}"
+  fi
+  systemctl enable --now "postgresql"
+}
+
+install_redis() {
+  if command -v redis-server >/dev/null 2>&1; then
+    log "Redis already installed"
+  else
+    log "Installing Redis"
+    apt_install redis-server
+  fi
+  systemctl enable --now redis-server
+}
+
+provision_database() {
+  log "Provisioning database ${DB_NAME} / user ${DB_USER}"
+  local db_password_file="${ROOFOPS_ENV_DIR}/.db_password"
+  install -d -m 0750 "${ROOFOPS_ENV_DIR}"
+  if [[ ! -f "${db_password_file}" ]]; then
+    generate_password > "${db_password_file}"
+    chmod 0600 "${db_password_file}"
+  fi
+  local db_password
+  db_password="$(cat "${db_password_file}")"
+
+  sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" \
+    | grep -q 1 \
+    || sudo -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${db_password}';"
+  sudo -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${db_password}';" >/dev/null
+
+  sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" \
+    | grep -q 1 \
+    || sudo -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+
+  echo "${db_password}"
+}
+
+write_env_file() {
+  local db_password="$1"
+  local env_file="${ROOFOPS_ENV_DIR}/api.env"
+  install -d -m 0750 -o root -g "${ROOFOPS_USER}" "${ROOFOPS_ENV_DIR}"
+
+  if [[ -f "${env_file}" ]]; then
+    log "Env file ${env_file} already present; leaving as-is"
+    return
+  fi
+
+  log "Writing initial env file at ${env_file}"
+  local jwt_secret
+  jwt_secret="$(generate_secret)"
+  cat > "${env_file}" <<EOF
+# Generated by bootstrap.sh — secrets are sensitive. Edit before pointing DNS.
+NODE_ENV=production
+PORT=${ROOFOPS_API_PORT}
+HOST=127.0.0.1
+LOG_LEVEL=info
+
+DATABASE_URL=postgresql://${DB_USER}:${db_password}@127.0.0.1:5432/${DB_NAME}
+REDIS_URL=redis://127.0.0.1:6379
+
+JWT_SECRET=${jwt_secret}
+JWT_ACCESS_TTL_SECONDS=900
+JWT_REFRESH_TTL_SECONDS=2592000
+PASSWORD_RESET_TTL_SECONDS=3600
+
+# Fill in once the web app and DNS are live.
+APP_WEB_URL=https://${ROOFOPS_DOMAIN:-CHANGE-ME.example.com}
+CORS_ORIGINS=https://${ROOFOPS_DOMAIN:-CHANGE-ME.example.com}
+
+# Observability — populate after Sentry project exists.
+SENTRY_DSN=
+OTEL_SERVICE_NAME=roofops-api
+
+EMAIL_FROM=no-reply@${ROOFOPS_DOMAIN:-roofops.local}
+EOF
+  chmod 0640 "${env_file}"
+  chown root:"${ROOFOPS_USER}" "${env_file}"
+}
+
+clone_repo() {
+  if [[ -d "${ROOFOPS_APP_DIR}/.git" ]]; then
+    log "Repo already cloned at ${ROOFOPS_APP_DIR}"
+  else
+    log "Cloning ${ROOFOPS_REPO_URL} (branch ${ROOFOPS_BRANCH}) to ${ROOFOPS_APP_DIR}"
+    sudo -u "${ROOFOPS_USER}" git clone --branch "${ROOFOPS_BRANCH}" "${ROOFOPS_REPO_URL}" "${ROOFOPS_APP_DIR}"
+  fi
+}
+
+install_start_wrapper() {
+  log "Installing /usr/local/bin/roofops-api wrapper"
+  cp "${ROOFOPS_APP_DIR}/scripts/server/start-api.sh" /usr/local/bin/roofops-api
+  chmod 0755 /usr/local/bin/roofops-api
+}
+
+install_nginx_vhost() {
+  if [[ -z "${ROOFOPS_DOMAIN}" ]]; then
+    log "ROOFOPS_DOMAIN not set; skipping nginx vhost. Re-run with ROOFOPS_DOMAIN=api.example.com once DNS is ready."
+    return
+  fi
+  log "Installing nginx site for ${ROOFOPS_DOMAIN}"
+  local target="/etc/nginx/sites-available/roofops-api"
+  sed "s/__ROOFOPS_DOMAIN__/${ROOFOPS_DOMAIN}/g; s/__ROOFOPS_API_PORT__/${ROOFOPS_API_PORT}/g" \
+    "${ROOFOPS_APP_DIR}/scripts/server/nginx-roofops.conf" > "${target}"
+  ln -sf "${target}" /etc/nginx/sites-enabled/roofops-api
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl reload nginx
+}
+
+configure_firewall() {
+  log "Configuring ufw (22/tcp, 80/tcp, 443/tcp)"
+  ufw allow OpenSSH >/dev/null
+  ufw allow 80/tcp >/dev/null
+  ufw allow 443/tcp >/dev/null
+  ufw --force enable >/dev/null
+}
+
+main() {
+  require_root
+  ensure_user
+  install_base_packages
+  install_node
+  install_pm2
+  install_postgres
+  install_redis
+  configure_firewall
+  local db_password
+  db_password="$(provision_database)"
+  write_env_file "${db_password}"
+  clone_repo
+  install_start_wrapper
+  install_nginx_vhost
+
+  log "Bootstrap complete."
+  cat <<EOF
+
+Next steps:
+  1. Point DNS for ${ROOFOPS_DOMAIN:-<your domain>} at this server.
+  2. If you didn't set ROOFOPS_DOMAIN, re-run this script with it set:
+       sudo ROOFOPS_DOMAIN=api.example.com bash scripts/server/bootstrap.sh
+  3. Issue a TLS certificate:
+       sudo certbot --nginx -d ${ROOFOPS_DOMAIN:-api.example.com}
+  4. As the roofops user, run the first deploy:
+       sudo -iu ${ROOFOPS_USER}
+       cd ${ROOFOPS_APP_DIR}
+       bash scripts/server/deploy.sh
+  5. Confirm health:
+       curl https://${ROOFOPS_DOMAIN:-api.example.com}/health
+
+EOF
+}
+
+main "$@"
