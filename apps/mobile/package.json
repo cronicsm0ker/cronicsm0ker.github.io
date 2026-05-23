@@ -2,7 +2,7 @@
   "name": "@roofops/mobile",
   "version": "0.0.0",
   "private": true,
-  "main": "expo-router/entry",
+  "main": "index.ts",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -19,6 +19,7 @@
     "@roofops/ui": "workspace:*",
     "@tanstack/react-query": "^5.62.11",
     "expo": "~52.0.23",
+    "expo-constants": "~17.0.3",
     "expo-secure-store": "~14.0.1",
     "expo-status-bar": "~2.0.0",
     "react": "19.0.0",

@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "RoofOps",
+    "slug": "roofops",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": "roofops",
+    "platforms": ["ios", "android"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.roofops.app"
+    },
+    "android": {
+      "package": "com.roofops.app"
+    },
+    "newArchEnabled": true,
+    "plugins": ["expo-secure-store"],
+    "extra": {
+      "apiUrl": "http://localhost:3000"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "extends": "@roofops/config/tsconfig/react.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "lib": ["ES2023", "DOM"],
+    "types": ["react", "react-native"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "noEmit": true
+  },
+  "include": ["src", "App.tsx", "app.config.ts"]
+}
