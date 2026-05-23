@@ -31,6 +31,10 @@ model User {
   memberships         Membership[]
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  ownedLeads          Lead[]              @relation("LeadOwner")
+  activities          Activity[]          @relation("ActivityActor")
+  sentMessages        Message[]           @relation("MessageSender")
+  auditLogs           AuditLog[]          @relation("AuditActor")
 
   @@map("users")
 }
@@ -41,8 +45,14 @@ model Org {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  memberships Membership[]
-  contacts    Contact[]
+  memberships        Membership[]
+  contacts           Contact[]
+  leads              Lead[]
+  activities         Activity[]
+  threads            MessageThread[]
+  messages           Message[]
+  channelCredentials ChannelCredential[]
+  auditLogs          AuditLog[]
 
   @@map("orgs")
 }
@@ -91,21 +101,241 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
-// Multi-tenancy canary. Expanded in Phase 1 with lead/messaging fields.
+// ---- Phase 1: leads, messaging, audit ----
+
 model Contact {
-  id        String    @id @default(uuid()) @db.Uuid
-  orgId     String    @map("org_id") @db.Uuid
-  name      String
-  email     String?
-  phone     String?
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
+  id          String    @id @default(uuid()) @db.Uuid
+  orgId       String    @map("org_id") @db.Uuid
+  name        String
+  email       String?
+  phone       String?
+  // Normalized lookup fields for dedup (lowercase email, E.164 phone).
+  emailNorm   String?   @map("email_norm")
+  phoneNorm   String?   @map("phone_norm")
+  notes       String?
+  preferredChannel MessageChannel? @map("preferred_channel")
+  optedOutAt  DateTime? @map("opted_out_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  org      Org              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  leads    Lead[]
+  threads  MessageThread[]
+  activities Activity[]
+
+  @@index([orgId, id])
+  @@index([orgId, emailNorm])
+  @@index([orgId, phoneNorm])
+  @@map("contacts")
+}
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  ESTIMATING
+  PROPOSAL_SENT
+  WON
+  LOST
+  DORMANT
+}
+
+enum LeadSource {
+  WEB_FORM
+  META_ADS
+  GOOGLE_ADS
+  TIKTOK_ADS
+  WHATSAPP
+  SMS
+  IMESSAGE
+  EMAIL
+  TELEGRAM
+  PHONE
+  MANUAL
+  CSV_IMPORT
+  REFERRAL
+  OTHER
+}
+
+model Lead {
+  id              String     @id @default(uuid()) @db.Uuid
+  orgId           String     @map("org_id") @db.Uuid
+  contactId       String     @map("contact_id") @db.Uuid
+  ownerId         String?    @map("owner_id") @db.Uuid
+  stage           LeadStage  @default(NEW)
+  source          LeadSource
+  sourceMeta      Json?      @map("source_meta")
+  title           String?
+  notes           String?
+  firstRespondedAt DateTime? @map("first_responded_at")
+  slaBreachedAt   DateTime?  @map("sla_breached_at")
+  wonAt           DateTime?  @map("won_at")
+  lostAt          DateTime?  @map("lost_at")
+  lostReason      String?    @map("lost_reason")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  deletedAt       DateTime?  @map("deleted_at")
+
+  org        Org        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact    Contact    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  owner      User?      @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  activities Activity[]
+
+  @@index([orgId, stage, createdAt])
+  @@index([orgId, ownerId, stage])
+  @@index([orgId, contactId])
+  @@index([orgId, source])
+  @@map("leads")
+}
+
+enum ActivityKind {
+  LEAD_CREATED
+  LEAD_STAGE_CHANGED
+  LEAD_ASSIGNED
+  LEAD_NOTE
+  MESSAGE_INBOUND
+  MESSAGE_OUTBOUND
+  CALL_LOGGED
+  PROPOSAL_SENT
+  PROPOSAL_VIEWED
+  PROPOSAL_ACCEPTED
+  CONTACT_MERGED
+  CHANNEL_OPTED_OUT
+}
+
+model Activity {
+  id        String       @id @default(uuid()) @db.Uuid
+  orgId     String       @map("org_id") @db.Uuid
+  kind      ActivityKind
+  contactId String?      @map("contact_id") @db.Uuid
+  leadId    String?      @map("lead_id") @db.Uuid
+  threadId  String?      @map("thread_id") @db.Uuid
+  messageId String?      @map("message_id") @db.Uuid
+  actorId   String?      @map("actor_id") @db.Uuid
+  payload   Json?
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  org     Org             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead    Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  thread  MessageThread?  @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  message Message?        @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  actor   User?           @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, leadId, createdAt])
+  @@index([orgId, contactId, createdAt])
+  @@index([orgId, kind, createdAt])
+  @@map("activities")
+}
+
+enum MessageChannel {
+  WHATSAPP
+  IMESSAGE
+  SMS
+  EMAIL
+  TELEGRAM
+  WEB_FORM
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model MessageThread {
+  id              String         @id @default(uuid()) @db.Uuid
+  orgId           String         @map("org_id") @db.Uuid
+  contactId       String         @map("contact_id") @db.Uuid
+  leadId          String?        @map("lead_id") @db.Uuid
+  channel         MessageChannel
+  externalId      String?        @map("external_id")
+  lastMessageAt   DateTime?      @map("last_message_at")
+  unreadCount     Int            @default(0) @map("unread_count")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact  Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages Message[]
+  activities Activity[]
+
+  @@unique([orgId, channel, externalId])
+  @@index([orgId, contactId, channel])
+  @@index([orgId, lastMessageAt])
+  @@map("message_threads")
+}
+
+model Message {
+  id          String           @id @default(uuid()) @db.Uuid
+  orgId       String           @map("org_id") @db.Uuid
+  threadId    String           @map("thread_id") @db.Uuid
+  direction   MessageDirection
+  channel     MessageChannel
+  body        String
+  externalId  String?          @map("external_id")
+  status      MessageStatus    @default(PENDING)
+  sentBy      String?          @map("sent_by") @db.Uuid
+  attachments Json?
+  errorMessage String?         @map("error_message")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  org    Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  thread MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender User?         @relation("MessageSender", fields: [sentBy], references: [id], onDelete: SetNull)
+  activities Activity[]
+
+  @@unique([orgId, channel, externalId])
+  @@index([orgId, threadId, createdAt])
+  @@map("messages")
+}
+
+model ChannelCredential {
+  id          String         @id @default(uuid()) @db.Uuid
+  orgId       String         @map("org_id") @db.Uuid
+  channel     MessageChannel
+  label       String
+  // Provider-specific config stored as JSON (API tokens, phone numbers, etc.).
+  // In production these should be encrypted at rest via pgcrypto / KMS.
+  config      Json
+  webhookToken String?       @unique @map("webhook_token")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  disabledAt  DateTime?      @map("disabled_at")
 
   org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  @@index([orgId, id])
-  @@index([orgId, email])
-  @@index([orgId, phone])
-  @@map("contacts")
+  @@unique([orgId, channel, label])
+  @@index([orgId, channel])
+  @@map("channel_credentials")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  orgId      String   @map("org_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  before     Json?
+  after      Json?
+  requestId  String?  @map("request_id")
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  org   Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@index([orgId, entityType, entityId])
+  @@index([orgId, actorId, createdAt])
+  @@map("audit_logs")
 }

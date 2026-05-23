@@ -13,6 +13,10 @@ import { authPlugin } from './plugins/auth.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { meRoutes } from './routes/me.js';
+import { contactsRoutes } from './routes/contacts.js';
+import { leadsRoutes } from './routes/leads.js';
+import { inboxRoutes } from './routes/inbox.js';
+import { webFormChannel } from './channels/web-form.js';
 
 export async function buildApp() {
   const env = loadEnv();
@@ -45,6 +49,10 @@ export async function buildApp() {
   await app.register(healthRoutes);
   await app.register(authRoutes);
   await app.register(meRoutes);
+  await app.register(contactsRoutes);
+  await app.register(leadsRoutes);
+  await app.register(inboxRoutes);
+  await app.register(webFormChannel);
 
   return app;
 }

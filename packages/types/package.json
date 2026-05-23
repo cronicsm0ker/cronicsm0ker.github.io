@@ -10,7 +10,11 @@
     "./auth": "./src/auth.ts",
     "./errors": "./src/errors.ts",
     "./org": "./src/org.ts",
-    "./user": "./src/user.ts"
+    "./user": "./src/user.ts",
+    "./contact": "./src/contact.ts",
+    "./lead": "./src/lead.ts",
+    "./activity": "./src/activity.ts",
+    "./messaging": "./src/messaging.ts"
   },
   "scripts": {
     "lint": "eslint .",

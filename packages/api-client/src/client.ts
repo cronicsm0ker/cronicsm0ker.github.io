@@ -9,9 +9,32 @@ import {
   MeResponseSchema,
   type RegisterRequest,
   type ResetPasswordRequest,
-  type RefreshResponse,
   RefreshResponseSchema,
+  ContactSchema,
+  type Contact,
+  type ContactInput,
+  type ContactPatch,
+  type ContactMergeRequest,
+  LeadSchema,
+  LeadWithContactSchema,
+  LeadListResponseSchema,
+  type Lead,
+  type LeadWithContact,
+  type LeadListResponse,
+  type LeadListQuery,
+  type CreateLeadRequest,
+  type UpdateLeadRequest,
+  type AssignLeadRequest,
+  type ChangeLeadStageRequest,
+  type ActivityListResponse,
+  ActivityListResponseSchema,
+  MessageSchema,
+  type Message,
+  type MessageThread,
+  MessageThreadSchema,
+  type SendMessageRequest,
 } from '@roofops/types';
+import { z } from 'zod';
 import { ApiClientError } from './errors.js';
 
 export interface TokenStorage {
@@ -43,6 +66,55 @@ export interface ApiClient {
   forgotPassword: (req: ForgotPasswordRequest) => Promise<void>;
   resetPassword: (req: ResetPasswordRequest) => Promise<void>;
   me: () => Promise<MeResponse>;
+
+  // Phase 1: contacts
+  listContacts: (opts?: { search?: string; limit?: number }) => Promise<{ items: Contact[] }>;
+  getContact: (id: string) => Promise<Contact>;
+  upsertContact: (input: ContactInput) => Promise<Contact>;
+  updateContact: (id: string, patch: ContactPatch) => Promise<Contact>;
+  mergeContacts: (req: ContactMergeRequest) => Promise<Contact>;
+
+  // Phase 1: leads
+  listLeads: (query?: Partial<LeadListQuery>) => Promise<LeadListResponse>;
+  createLead: (req: CreateLeadRequest) => Promise<LeadWithContact>;
+  getLead: (id: string) => Promise<LeadWithContact>;
+  updateLead: (id: string, patch: UpdateLeadRequest) => Promise<Lead>;
+  assignLead: (id: string, req: AssignLeadRequest) => Promise<Lead>;
+  changeLeadStage: (id: string, req: ChangeLeadStageRequest) => Promise<Lead>;
+  listLeadActivities: (
+    id: string,
+    opts?: { limit?: number; cursor?: string },
+  ) => Promise<ActivityListResponse>;
+
+  // Phase 1: inbox
+  listThreads: (opts?: { limit?: number; cursor?: string }) => Promise<{
+    items: MessageThread[];
+    nextCursor: string | null;
+  }>;
+  listThreadMessages: (
+    threadId: string,
+    opts?: { limit?: number; cursor?: string },
+  ) => Promise<{ items: Message[]; nextCursor: string | null }>;
+  sendMessage: (req: SendMessageRequest) => Promise<Message>;
+}
+
+const ContactsListSchema = z.object({ items: z.array(ContactSchema) });
+const ThreadsListSchema = z.object({
+  items: z.array(MessageThreadSchema),
+  nextCursor: z.string().uuid().nullable(),
+});
+const MessagesListSchema = z.object({
+  items: z.array(MessageSchema),
+  nextCursor: z.string().uuid().nullable(),
+});
+
+function buildQuery(params: Record<string, string | number | undefined>): string {
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') sp.set(key, String(value));
+  }
+  const s = sp.toString();
+  return s.length > 0 ? `?${s}` : '';
 }
 
 export function createApiClient(options: ApiClientOptions): ApiClient {
@@ -193,6 +265,66 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     },
     async me() {
       return request('/me', MeResponseSchema, { method: 'GET' });
+    },
+
+    async listContacts(opts) {
+      const q = buildQuery({ search: opts?.search, limit: opts?.limit });
+      return request(`/contacts${q}`, ContactsListSchema, { method: 'GET' });
+    },
+    async getContact(id) {
+      return request(`/contacts/${id}`, ContactSchema, { method: 'GET' });
+    },
+    async upsertContact(input) {
+      return request('/contacts', ContactSchema, { method: 'POST', body: input });
+    },
+    async updateContact(id, patch) {
+      return request(`/contacts/${id}`, ContactSchema, { method: 'PATCH', body: patch });
+    },
+    async mergeContacts(req) {
+      return request('/contacts/merge', ContactSchema, { method: 'POST', body: req });
+    },
+
+    async listLeads(query) {
+      const q = buildQuery({
+        stage: query?.stage,
+        ownerId: query?.ownerId,
+        source: query?.source,
+        search: query?.search,
+        limit: query?.limit,
+        cursor: query?.cursor,
+      });
+      return request(`/leads${q}`, LeadListResponseSchema, { method: 'GET' });
+    },
+    async createLead(req) {
+      return request('/leads', LeadWithContactSchema, { method: 'POST', body: req });
+    },
+    async getLead(id) {
+      return request(`/leads/${id}`, LeadWithContactSchema, { method: 'GET' });
+    },
+    async updateLead(id, patch) {
+      return request(`/leads/${id}`, LeadSchema, { method: 'PATCH', body: patch });
+    },
+    async assignLead(id, req) {
+      return request(`/leads/${id}/assign`, LeadSchema, { method: 'POST', body: req });
+    },
+    async changeLeadStage(id, req) {
+      return request(`/leads/${id}/stage`, LeadSchema, { method: 'POST', body: req });
+    },
+    async listLeadActivities(id, opts) {
+      const q = buildQuery({ limit: opts?.limit, cursor: opts?.cursor });
+      return request(`/leads/${id}/activities${q}`, ActivityListResponseSchema, { method: 'GET' });
+    },
+
+    async listThreads(opts) {
+      const q = buildQuery({ limit: opts?.limit, cursor: opts?.cursor });
+      return request(`/threads${q}`, ThreadsListSchema, { method: 'GET' });
+    },
+    async listThreadMessages(threadId, opts) {
+      const q = buildQuery({ limit: opts?.limit, cursor: opts?.cursor });
+      return request(`/threads/${threadId}/messages${q}`, MessagesListSchema, { method: 'GET' });
+    },
+    async sendMessage(req) {
+      return request('/messages', MessageSchema, { method: 'POST', body: req });
     },
   };
 }
