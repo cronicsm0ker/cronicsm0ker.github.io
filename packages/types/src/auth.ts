@@ -75,10 +75,6 @@ export interface JwtAccessPayload {
   exp: number;
 }
 
-export interface JwtRefreshPayload {
-  sub: string;
-  jti: string;
-  type: 'refresh';
-  iat: number;
-  exp: number;
-}
+// Refresh tokens are opaque random strings (not JWTs), hashed at rest in the
+// `refresh_tokens` table so revocation is instant and the bearer token never
+// leaks claims if intercepted.
