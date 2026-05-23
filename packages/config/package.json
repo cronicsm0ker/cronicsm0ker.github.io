@@ -1,0 +1,15 @@
+{
+  "name": "@roofops/config",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./index.js",
+  "files": ["tsconfig", "eslint", "prettier"],
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/node.json": "./tsconfig/node.json",
+    "./tsconfig/react.json": "./tsconfig/react.json",
+    "./eslint/base": "./eslint/base.mjs",
+    "./eslint/node": "./eslint/node.mjs",
+    "./eslint/react": "./eslint/react.mjs"
+  }
+}
