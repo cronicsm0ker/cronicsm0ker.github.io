@@ -1,0 +1,10 @@
+{
+  "extends": "@roofops/config/tsconfig/node.json",
+  "compilerOptions": {
+    "composite": true,
+    "allowSyntheticDefaultImports": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["vite.config.ts"]
+}
