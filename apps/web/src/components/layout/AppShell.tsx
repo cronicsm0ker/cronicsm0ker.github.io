@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', exact: true },
   { to: '/leads', label: 'Leads' },
   { to: '/inbox', label: 'Inbox' },
+  { to: '/price-book', label: 'Price book' },
 ];
 
 export function AppShell({ children }: AppShellProps) {

@@ -33,6 +33,12 @@ import {
   type MessageThread,
   MessageThreadSchema,
   type SendMessageRequest,
+  PriceBookItemSchema,
+  PriceBookListResponseSchema,
+  type PriceBookItem,
+  type PriceBookItemInput,
+  type PriceBookItemPatch,
+  type PriceBookKind,
 } from '@roofops/types';
 import { z } from 'zod';
 import { ApiClientError } from './errors.js';
@@ -96,6 +102,21 @@ export interface ApiClient {
     opts?: { limit?: number; cursor?: string },
   ) => Promise<{ items: Message[]; nextCursor: string | null }>;
   sendMessage: (req: SendMessageRequest) => Promise<Message>;
+
+  // Phase 2: price book
+  listPriceBook: (opts?: {
+    kind?: PriceBookKind;
+    includeArchived?: boolean;
+    search?: string;
+  }) => Promise<{ items: PriceBookItem[] }>;
+  createPriceBookItem: (input: PriceBookItemInput) => Promise<PriceBookItem>;
+  updatePriceBookItem: (id: string, patch: PriceBookItemPatch) => Promise<PriceBookItem>;
+  deletePriceBookItem: (id: string) => Promise<void>;
+  importPriceBook: (rows: Record<string, unknown>[]) => Promise<{
+    inserted: number;
+    updated: number;
+    errors: Array<{ index: number; error: string }>;
+  }>;
 }
 
 const ContactsListSchema = z.object({ items: z.array(ContactSchema) });
@@ -325,6 +346,38 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     },
     async sendMessage(req) {
       return request('/messages', MessageSchema, { method: 'POST', body: req });
+    },
+
+    async listPriceBook(opts) {
+      const q = buildQuery({
+        kind: opts?.kind,
+        includeArchived: opts?.includeArchived ? 'true' : undefined,
+        search: opts?.search,
+      });
+      return request(`/price-book${q}`, PriceBookListResponseSchema, { method: 'GET' });
+    },
+    async createPriceBookItem(input) {
+      return request('/price-book', PriceBookItemSchema, { method: 'POST', body: input });
+    },
+    async updatePriceBookItem(id, patch) {
+      return request(`/price-book/${id}`, PriceBookItemSchema, {
+        method: 'PATCH',
+        body: patch,
+      });
+    },
+    async deletePriceBookItem(id) {
+      await request(`/price-book/${id}`, null, { method: 'DELETE' });
+    },
+    async importPriceBook(rows) {
+      const ImportResponse = z.object({
+        inserted: z.number().int(),
+        updated: z.number().int(),
+        errors: z.array(z.object({ index: z.number().int(), error: z.string() })),
+      });
+      return request('/price-book/import', ImportResponse, {
+        method: 'POST',
+        body: { rows },
+      });
     },
   };
 }
