@@ -22,6 +22,7 @@ import { inboxRoutes } from './routes/inbox.js';
 import { channelCredentialsRoutes } from './routes/channel-credentials.js';
 import { priceBookRoutes } from './routes/price-book.js';
 import { assetsRoutes } from './routes/assets.js';
+import { measurementsRoutes } from './routes/measurements.js';
 import { webFormChannel } from './channels/web-form.js';
 import { twilioSmsChannel } from './channels/twilio-sms.js';
 import { whatsappChannel } from './channels/whatsapp.js';
@@ -71,6 +72,7 @@ export async function buildApp() {
   await app.register(channelCredentialsRoutes);
   await app.register(priceBookRoutes);
   await app.register(assetsRoutes);
+  await app.register(measurementsRoutes);
 
   // Outbound transports register onto MessagesService; must come after
   // inboxRoutes so app.messages is decorated.

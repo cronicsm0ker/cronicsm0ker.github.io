@@ -45,6 +45,10 @@ import {
   type AssetOwnerType,
   type RequestUploadRequest,
   type UploadTicket,
+  MeasurementSchema,
+  type Measurement,
+  type CreateMeasurement,
+  type CreateManualPolygonMeasurement,
 } from '@roofops/types';
 import { z } from 'zod';
 import { ApiClientError } from './errors.js';
@@ -133,6 +137,12 @@ export interface ApiClient {
     ownerId: string,
   ) => Promise<{ items: Asset[] }>;
   deleteAsset: (id: string) => Promise<void>;
+
+  // Phase 2: measurements
+  listMeasurements: (leadId: string) => Promise<{ items: Measurement[] }>;
+  createMeasurement: (req: CreateMeasurement) => Promise<Measurement>;
+  createPolygonMeasurement: (req: CreateManualPolygonMeasurement) => Promise<Measurement>;
+  deleteMeasurement: (id: string) => Promise<void>;
 }
 
 const ContactsListSchema = z.object({ items: z.array(ContactSchema) });
@@ -422,6 +432,23 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     },
     async deleteAsset(id) {
       await request(`/assets/${id}`, null, { method: 'DELETE' });
+    },
+
+    async listMeasurements(leadId) {
+      const ListResp = z.object({ items: z.array(MeasurementSchema) });
+      return request(`/leads/${leadId}/measurements`, ListResp, { method: 'GET' });
+    },
+    async createMeasurement(req) {
+      return request('/measurements', MeasurementSchema, { method: 'POST', body: req });
+    },
+    async createPolygonMeasurement(req) {
+      return request('/measurements/polygon', MeasurementSchema, {
+        method: 'POST',
+        body: req,
+      });
+    },
+    async deleteMeasurement(id) {
+      await request(`/measurements/${id}`, null, { method: 'DELETE' });
     },
   };
 }
