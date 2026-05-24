@@ -6,7 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 import { LoginScreen } from './screens/LoginScreen';
-import { HomeScreen } from './screens/HomeScreen';
+import { AppTabs } from './navigation/AppTabs';
 import { useAuthStore } from './lib/auth-store';
 import { REFRESH_TOKEN_KEY } from './lib/api';
 import type { RootStackParamList } from './navigation/types';
@@ -41,7 +41,7 @@ export default function App() {
           <StatusBar style="auto" />
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             {status === 'authenticated' ? (
-              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="Tabs" component={AppTabs} />
             ) : (
               <Stack.Screen name="Login" component={LoginScreen} />
             )}
