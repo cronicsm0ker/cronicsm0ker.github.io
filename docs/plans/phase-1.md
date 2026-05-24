@@ -18,44 +18,34 @@
 
 ## Build sequence (chunks; each chunk = a commit)
 
-### Chunk 1 — Domain layer (this turn)
-- Prisma schema extensions: `Lead`, `LeadStage`, `LeadSource`, `Activity`, `ActivityKind`, `MessageThread`, `Message`, `MessageDirection`, `MessageChannel`, `AuditLog`. Expand `Contact` with `ownerId`, dedup-friendly normalized fields.
-- Migration `phase1_leads_and_messaging`.
-- `@roofops/types` Zod schemas for all new entities and request/response contracts.
-- `packages/db` query helpers that enforce `org_id` at every call site.
-- API service layer for Contacts, Leads, Activities, Threads, Messages — services take the `AuthContext` (orgId, userId, role) explicitly.
-- Audit log helper that writes one row per state change.
+### Chunk 1 — Domain layer ✅
+Schema, migration, types, services, audit logger landed.
 
-### Chunk 2 — REST API surface
-- Routes under `/contacts`, `/leads`, `/activities`, `/threads`, `/messages` — all behind `requireAuth`, all derive `org_id` from JWT, never request body.
-- Stage transition endpoint with allowed-transition matrix and SLA stamping.
-- Dedup-on-create for contacts.
-- Contact merge endpoint.
+### Chunk 2 — REST API surface ✅
+`/contacts`, `/leads`, `/threads`, `/messages` + stage transition with matrix + dedup + merge.
 
-### Chunk 3 — Channel adapters: ingress
-- Webhook router under `/webhooks/<provider>/<orgId>` with HMAC verification per provider.
-- Reference adapter: **public web form** (`POST /public/leads/web-form?token=...`) — simplest, no provider-side auth.
-- Meta Lead Ads, Google Ads, WhatsApp Cloud API, Twilio SMS, Postmark inbound, Telegram bot, iMessage gateway — one file each under `apps/api/src/channels/`.
-- Each adapter normalizes to `LeadIngest` shape and calls `LeadService.ingest`.
+### Chunk 3 — Channel adapters (ingress) ✅
+Web form (reference), Twilio SMS, WhatsApp Cloud API, Meta Lead Ads (notification only — Graph fetch deferred), Postmark email, Telegram. Signature verification helpers + Vitest coverage.
 
-### Chunk 4 — Outbound messaging
-- `MessageService.send` with per-channel transport.
-- Provider keys stored encrypted in `ChannelCredential(org_id, channel, secret)` table.
-- WhatsApp template-message support (HSM); freeform within 24h window.
+### Chunk 4 — Outbound messaging ✅
+MessageTransport implementations for SMS, WhatsApp, Email, Telegram registered via `transportsPlugin`. iMessage gateway pending vendor choice; web-form has no outbound.
 
-### Chunk 5 — Web UI: lead pipeline + inbox
-- Routes: `/leads` (kanban + table toggle), `/leads/:id`, `/inbox`, `/inbox/:threadId`, `/contacts`.
-- SLA timer component.
-- Optimistic stage transitions.
+### Chunk 5 — Web UI: lead pipeline + inbox ✅
+Protected `_app` layout with sidebar nav; Dashboard / Leads (filterable table) / Lead detail (stage + activity) / Inbox / Thread (chat bubbles + composer + 8s poll).
 
-### Chunk 6 — Mobile UI
-- Tabs: Leads, Inbox, Profile.
-- Lead list with pull-to-refresh; lead detail with stage + assign + quick-reply composer.
-- Background sync for new messages via TanStack Query polling (Expo push notifications in Phase 4).
+### Chunk 6 — Mobile UI ✅
+Bottom tabs (Leads / Inbox / Profile), pull-to-refresh lists, lead detail with stage buttons, thread detail with composer.
 
-### Chunk 7 — Audit + dedup tests + e2e checkpoint
-- Vitest contract tests against the channel-adapter normalization.
-- Cypress/Playwright happy-path: ad lead → reply → thread visible.
+### Chunk 7 — Tests + e2e checkpoint ✅
+Vitest org-isolation test (`apps/api/src/services/__tests__/org-isolation.test.ts`) covering read, list, stage, assign, and dedup scoping. Manual smoke checklist in `docs/phase-1-smoke.md`. Playwright slips to Phase 4 hardening since the UI surface is still volatile.
+
+## What slipped to later phases
+
+- **Meta Lead Ads Graph fetch**: webhook accepts the notification and stores the `leadgen_id`; a background job (Phase 2 BullMQ) fetches the form data and enriches the Contact.
+- **Email provider for password reset / lead notifications**: still console-stubbed; Postmark wired in Phase 2 alongside the asset upload pipeline.
+- **WhatsApp HSM template support**: needed for outbound outside the 24h window. Added with the proposal-sent notification in Phase 3.
+- **iMessage gateway**: vendor (Sendblue vs Loop) not chosen yet; structure is in place (channel enum, transport interface) for drop-in.
+- **Playwright e2e**: structure unstable until Phase 4 hardening pass.
 
 ## Acceptance
 
