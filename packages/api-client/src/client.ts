@@ -49,6 +49,16 @@ import {
   type Measurement,
   type CreateMeasurement,
   type CreateManualPolygonMeasurement,
+  ProposalSchema,
+  ProposalWithVersionSchema,
+  PublicProposalSchema,
+  type Proposal,
+  type ProposalWithVersion,
+  type CreateProposalRequest,
+  type UpdateProposalDraftRequest,
+  type GenerateProposalRequest,
+  type PublicProposal,
+  type AcceptProposal,
 } from '@roofops/types';
 import { z } from 'zod';
 import { ApiClientError } from './errors.js';
@@ -143,6 +153,39 @@ export interface ApiClient {
   createMeasurement: (req: CreateMeasurement) => Promise<Measurement>;
   createPolygonMeasurement: (req: CreateManualPolygonMeasurement) => Promise<Measurement>;
   deleteMeasurement: (id: string) => Promise<void>;
+
+  // Phase 2: proposals
+  getProposal: (id: string) => Promise<ProposalWithVersion>;
+  listLeadProposals: (leadId: string) => Promise<{ items: Proposal[] }>;
+  createProposal: (req: CreateProposalRequest) => Promise<ProposalWithVersion>;
+  generateProposal: (req: GenerateProposalRequest) => Promise<{
+    proposal: ProposalWithVersion;
+    generation: {
+      confidence: number;
+      reviewNotes: string[];
+      modelUsed: string;
+      cacheReadTokens: number;
+    };
+    publicToken: string;
+  }>;
+  updateProposalDraft: (
+    id: string,
+    patch: UpdateProposalDraftRequest,
+  ) => Promise<ProposalWithVersion>;
+  sendProposal: (id: string) => Promise<Proposal>;
+  withdrawProposal: (id: string) => Promise<Proposal>;
+  rotateProposalToken: (id: string) => Promise<{ token: string }>;
+
+  // Public customer-portal calls
+  getPublicProposal: (token: string) => Promise<PublicProposal & { proposalId: string }>;
+  acceptPublicProposal: (
+    token: string,
+    body: AcceptProposal,
+  ) => Promise<PublicProposal & { proposalId: string }>;
+  rejectPublicProposal: (
+    token: string,
+    rejectionReason: string,
+  ) => Promise<PublicProposal & { proposalId: string }>;
 }
 
 const ContactsListSchema = z.object({ items: z.array(ContactSchema) });
@@ -449,6 +492,80 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     },
     async deleteMeasurement(id) {
       await request(`/measurements/${id}`, null, { method: 'DELETE' });
+    },
+
+    async getProposal(id) {
+      return request(`/proposals/${id}`, ProposalWithVersionSchema, { method: 'GET' });
+    },
+    async listLeadProposals(leadId) {
+      const ListResp = z.object({ items: z.array(ProposalSchema) });
+      return request(`/leads/${leadId}/proposals`, ListResp, { method: 'GET' });
+    },
+    async createProposal(req) {
+      return request('/proposals', ProposalWithVersionSchema, {
+        method: 'POST',
+        body: req,
+      });
+    },
+    async generateProposal(req) {
+      const GenerateResp = z.object({
+        proposal: ProposalWithVersionSchema,
+        generation: z.object({
+          confidence: z.number().int(),
+          reviewNotes: z.array(z.string()),
+          modelUsed: z.string(),
+          cacheReadTokens: z.number().int(),
+        }),
+        publicToken: z.string(),
+      });
+      return request('/proposals/generate', GenerateResp, {
+        method: 'POST',
+        body: req,
+      });
+    },
+    async updateProposalDraft(id, patch) {
+      return request(`/proposals/${id}`, ProposalWithVersionSchema, {
+        method: 'PATCH',
+        body: patch,
+      });
+    },
+    async sendProposal(id) {
+      return request(`/proposals/${id}/send`, ProposalSchema, {
+        method: 'POST',
+        body: {},
+      });
+    },
+    async withdrawProposal(id) {
+      return request(`/proposals/${id}/withdraw`, ProposalSchema, {
+        method: 'POST',
+      });
+    },
+    async rotateProposalToken(id) {
+      const TokenResp = z.object({ token: z.string() });
+      return request(`/proposals/${id}/rotate-token`, TokenResp, {
+        method: 'POST',
+      });
+    },
+
+    async getPublicProposal(token) {
+      const Resp = PublicProposalSchema.extend({ proposalId: z.string().uuid() });
+      return request(`/portal/proposals/${token}`, Resp, { method: 'GET', auth: false });
+    },
+    async acceptPublicProposal(token, body) {
+      const Resp = PublicProposalSchema.extend({ proposalId: z.string().uuid() });
+      return request(`/portal/proposals/${token}/accept`, Resp, {
+        method: 'POST',
+        body,
+        auth: false,
+      });
+    },
+    async rejectPublicProposal(token, rejectionReason) {
+      const Resp = PublicProposalSchema.extend({ proposalId: z.string().uuid() });
+      return request(`/portal/proposals/${token}/reject`, Resp, {
+        method: 'POST',
+        body: { rejectionReason },
+        auth: false,
+      });
     },
   };
 }
