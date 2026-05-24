@@ -29,6 +29,23 @@ const EnvSchema = z.object({
 
   EMAIL_FROM: z.string().email().default('no-reply@roofops.local'),
   APP_WEB_URL: z.string().url().default('http://localhost:5173'),
+
+  // S3-compatible object storage. Endpoint is optional so AWS defaults
+  // when omitted; set it for Backblaze B2 / Cloudflare R2 / MinIO.
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_REGION: z.string().default('auto'),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_FORCE_PATH_STYLE: z
+    .union([z.literal('true'), z.literal('false')])
+    .default('false')
+    .transform((v) => v === 'true'),
+  S3_PUBLIC_URL: z.string().url().optional(),
+
+  // Anthropic for the AI proposal generator.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

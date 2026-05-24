@@ -39,6 +39,12 @@ import {
   type PriceBookItemInput,
   type PriceBookItemPatch,
   type PriceBookKind,
+  AssetSchema,
+  UploadTicketSchema,
+  type Asset,
+  type AssetOwnerType,
+  type RequestUploadRequest,
+  type UploadTicket,
 } from '@roofops/types';
 import { z } from 'zod';
 import { ApiClientError } from './errors.js';
@@ -117,6 +123,16 @@ export interface ApiClient {
     updated: number;
     errors: Array<{ index: number; error: string }>;
   }>;
+
+  // Phase 2: assets
+  requestAssetUpload: (req: RequestUploadRequest) => Promise<UploadTicket>;
+  finalizeAssetUpload: (id: string, contentHash: string) => Promise<Asset>;
+  getAsset: (id: string) => Promise<{ asset: Asset; downloadUrl: string | null }>;
+  listAssets: (
+    ownerType: AssetOwnerType,
+    ownerId: string,
+  ) => Promise<{ items: Asset[] }>;
+  deleteAsset: (id: string) => Promise<void>;
 }
 
 const ContactsListSchema = z.object({ items: z.array(ContactSchema) });
@@ -378,6 +394,34 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         method: 'POST',
         body: { rows },
       });
+    },
+
+    async requestAssetUpload(req) {
+      return request('/assets/upload-ticket', UploadTicketSchema, {
+        method: 'POST',
+        body: req,
+      });
+    },
+    async finalizeAssetUpload(id, contentHash) {
+      return request(`/assets/${id}/finalize`, AssetSchema, {
+        method: 'POST',
+        body: { contentHash },
+      });
+    },
+    async getAsset(id) {
+      const AssetWithUrl = z.object({
+        asset: AssetSchema,
+        downloadUrl: z.string().url().nullable(),
+      });
+      return request(`/assets/${id}`, AssetWithUrl, { method: 'GET' });
+    },
+    async listAssets(ownerType, ownerId) {
+      const q = buildQuery({ ownerType, ownerId });
+      const ListResp = z.object({ items: z.array(AssetSchema) });
+      return request(`/assets${q}`, ListResp, { method: 'GET' });
+    },
+    async deleteAsset(id) {
+      await request(`/assets/${id}`, null, { method: 'DELETE' });
     },
   };
 }
