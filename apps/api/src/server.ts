@@ -12,6 +12,7 @@ import { prismaPlugin } from './plugins/prisma.js';
 import { sentryPlugin } from './plugins/sentry.js';
 import { otelPlugin } from './plugins/otel.js';
 import { authPlugin } from './plugins/auth.js';
+import { transportsPlugin } from './plugins/transports.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { meRoutes } from './routes/me.js';
@@ -67,8 +68,12 @@ export async function buildApp() {
   await app.register(inboxRoutes);
   await app.register(channelCredentialsRoutes);
 
-  // Inbound channel adapters. webFormChannel must register after
-  // channelCredentialsRoutes so the channelCredentials decorator is available.
+  // Outbound transports register onto MessagesService; must come after
+  // inboxRoutes so app.messages is decorated.
+  await app.register(transportsPlugin);
+
+  // Inbound channel adapters. Must register after channelCredentialsRoutes
+  // so the channelCredentials decorator is available.
   await app.register(webFormChannel);
   await app.register(twilioSmsChannel);
   await app.register(whatsappChannel);
