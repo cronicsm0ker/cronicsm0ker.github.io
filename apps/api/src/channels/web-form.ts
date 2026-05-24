@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { LeadIngestSchema } from '@roofops/types';
 import { Errors } from '../errors.js';
-import type { AuthContext } from '../lib/auth-context.js';
+import { authContextFromCredential } from './_lib.js';
 import { LeadsService } from '../services/leads.js';
 import { ContactsService } from '../services/contacts.js';
 import { MessagesService } from '../services/messages.js';
@@ -47,13 +47,7 @@ export async function webFormChannel(app: FastifyInstance) {
       throw Errors.unauthorized('Invalid or disabled webhook token');
     }
 
-    const ctx: AuthContext = {
-      userId: '00000000-0000-0000-0000-000000000000',
-      orgId: credential.orgId,
-      role: 'MEMBER',
-      requestId: request.id,
-      ip: request.ip,
-    };
+    const ctx = authContextFromCredential(credential, request);
 
     const ingest = LeadIngestSchema.parse({
       source: 'WEB_FORM',

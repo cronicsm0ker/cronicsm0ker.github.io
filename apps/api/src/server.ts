@@ -1,11 +1,13 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import formbody from '@fastify/formbody';
 import helmet from '@fastify/helmet';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { loadEnv } from './env.js';
 import { logger } from './logger.js';
 import { buildErrorHandler } from './errors.js';
+import { rawBodyPlugin } from './plugins/raw-body.js';
 import { prismaPlugin } from './plugins/prisma.js';
 import { sentryPlugin } from './plugins/sentry.js';
 import { otelPlugin } from './plugins/otel.js';
@@ -16,7 +18,13 @@ import { meRoutes } from './routes/me.js';
 import { contactsRoutes } from './routes/contacts.js';
 import { leadsRoutes } from './routes/leads.js';
 import { inboxRoutes } from './routes/inbox.js';
+import { channelCredentialsRoutes } from './routes/channel-credentials.js';
 import { webFormChannel } from './channels/web-form.js';
+import { twilioSmsChannel } from './channels/twilio-sms.js';
+import { whatsappChannel } from './channels/whatsapp.js';
+import { metaAdsChannel } from './channels/meta-ads.js';
+import { postmarkChannel } from './channels/postmark-email.js';
+import { telegramChannel } from './channels/telegram.js';
 
 export async function buildApp() {
   const env = loadEnv();
@@ -29,6 +37,11 @@ export async function buildApp() {
   });
 
   app.setErrorHandler(buildErrorHandler());
+
+  // Content parsers must register before any plugin that uses them, so the
+  // raw-body capture is in effect for the webhook routes registered below.
+  await app.register(rawBodyPlugin);
+  await app.register(formbody);
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, {
@@ -52,7 +65,16 @@ export async function buildApp() {
   await app.register(contactsRoutes);
   await app.register(leadsRoutes);
   await app.register(inboxRoutes);
+  await app.register(channelCredentialsRoutes);
+
+  // Inbound channel adapters. webFormChannel must register after
+  // channelCredentialsRoutes so the channelCredentials decorator is available.
   await app.register(webFormChannel);
+  await app.register(twilioSmsChannel);
+  await app.register(whatsappChannel);
+  await app.register(metaAdsChannel);
+  await app.register(postmarkChannel);
+  await app.register(telegramChannel);
 
   return app;
 }

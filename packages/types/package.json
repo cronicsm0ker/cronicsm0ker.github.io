@@ -14,7 +14,8 @@
     "./contact": "./src/contact.ts",
     "./lead": "./src/lead.ts",
     "./activity": "./src/activity.ts",
-    "./messaging": "./src/messaging.ts"
+    "./messaging": "./src/messaging.ts",
+    "./channel": "./src/channel.ts"
   },
   "scripts": {
     "lint": "eslint .",

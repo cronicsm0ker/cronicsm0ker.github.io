@@ -6,3 +6,4 @@ export * from './contact.js';
 export * from './lead.js';
 export * from './activity.js';
 export * from './messaging.js';
+export * from './channel.js';
