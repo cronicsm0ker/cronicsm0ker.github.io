@@ -15,7 +15,11 @@
     "./lead": "./src/lead.ts",
     "./activity": "./src/activity.ts",
     "./messaging": "./src/messaging.ts",
-    "./channel": "./src/channel.ts"
+    "./channel": "./src/channel.ts",
+    "./price-book": "./src/price-book.ts",
+    "./asset": "./src/asset.ts",
+    "./measurement": "./src/measurement.ts",
+    "./proposal": "./src/proposal.ts"
   },
   "scripts": {
     "lint": "eslint .",

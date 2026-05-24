@@ -35,6 +35,8 @@ model User {
   activities          Activity[]          @relation("ActivityActor")
   sentMessages        Message[]           @relation("MessageSender")
   auditLogs           AuditLog[]          @relation("AuditActor")
+  uploadedAssets      Asset[]             @relation("AssetUploader")
+  createdProposals    Proposal[]          @relation("ProposalCreator")
 
   @@map("users")
 }
@@ -53,6 +55,11 @@ model Org {
   messages           Message[]
   channelCredentials ChannelCredential[]
   auditLogs          AuditLog[]
+  priceBookItems     PriceBookItem[]
+  assets             Asset[]
+  measurements       Measurement[]
+  proposals          Proposal[]
+  proposalVersions   ProposalVersion[]
 
   @@map("orgs")
 }
@@ -338,4 +345,195 @@ model AuditLog {
   @@index([orgId, entityType, entityId])
   @@index([orgId, actorId, createdAt])
   @@map("audit_logs")
+}
+
+// ---- Phase 2: price book, assets, measurements, proposals ----
+
+enum PriceBookKind {
+  MATERIAL
+  LABOR
+  FEE
+}
+
+model PriceBookItem {
+  id              String         @id @default(uuid()) @db.Uuid
+  orgId           String         @map("org_id") @db.Uuid
+  kind            PriceBookKind
+  name            String
+  description     String?
+  unit            String
+  // Money in cents (BigInt). Default markup in basis points (3000 = 30%).
+  unitCostCents   BigInt         @map("unit_cost_cents")
+  markupBps       Int            @default(3000) @map("markup_bps")
+  // Decimal as int basis points: 1000 = 10% waste. Materials waste defaults
+  // vary by category; the org can override per item.
+  wasteFactorBps  Int            @default(1000) @map("waste_factor_bps")
+  sku             String?
+  archivedAt      DateTime?      @map("archived_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId, kind])
+  @@index([orgId, archivedAt])
+  @@map("price_book_items")
+}
+
+enum AssetKind {
+  PHOTO
+  BLUEPRINT
+  DOCUMENT
+  PROPOSAL_PDF
+  SIGNED_CONTRACT
+  THUMBNAIL
+  OTHER
+}
+
+enum AssetStatus {
+  PENDING
+  READY
+  REJECTED
+}
+
+enum AssetOwnerType {
+  CONTACT
+  LEAD
+  PROPOSAL
+}
+
+model Asset {
+  id           String          @id @default(uuid()) @db.Uuid
+  orgId        String          @map("org_id") @db.Uuid
+  ownerType    AssetOwnerType  @map("owner_type")
+  ownerId      String          @map("owner_id") @db.Uuid
+  kind         AssetKind
+  mimeType     String          @map("mime_type")
+  sizeBytes    BigInt          @map("size_bytes")
+  s3Key        String          @unique @map("s3_key")
+  thumbnailKey String?         @unique @map("thumbnail_key")
+  // SHA-256 of the file contents. Used to detect tampering on signed
+  // contracts and to dedup repeated uploads.
+  contentHash  String          @map("content_hash")
+  status       AssetStatus     @default(PENDING)
+  uploadedBy   String?         @map("uploaded_by") @db.Uuid
+  meta         Json?
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  org      Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  uploader User?         @relation("AssetUploader", fields: [uploadedBy], references: [id], onDelete: SetNull)
+  measurements Measurement[]
+
+  @@index([orgId, ownerType, ownerId])
+  @@index([orgId, kind])
+  @@index([orgId, contentHash])
+  @@map("assets")
+}
+
+enum MeasurementMethod {
+  BLUEPRINT
+  MANUAL_POLYGON
+  SOLAR_API
+  EAGLEVIEW
+  MANUAL
+  FIELD_PHOTO
+}
+
+enum MeasurementUnit {
+  SQFT
+  LF
+  EACH
+  COUNT
+  SQUARES // roofing squares = 100 sq ft
+}
+
+model Measurement {
+  id          String             @id @default(uuid()) @db.Uuid
+  orgId       String             @map("org_id") @db.Uuid
+  leadId      String?            @map("lead_id") @db.Uuid
+  assetId     String?            @map("asset_id") @db.Uuid
+  method      MeasurementMethod
+  label       String
+  value       Decimal            @db.Decimal(14, 2)
+  unit        MeasurementUnit
+  // Confidence 0-100. 100 = vendor-certified (EagleView), human-measured
+  // blueprints land 70-90, AI extraction lands 40-80.
+  confidence  Int
+  notes       String?
+  payload     Json?
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  asset Asset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, leadId, createdAt])
+  @@index([orgId, method])
+  @@map("measurements")
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+}
+
+model Proposal {
+  id                 String         @id @default(uuid()) @db.Uuid
+  orgId              String         @map("org_id") @db.Uuid
+  leadId             String         @map("lead_id") @db.Uuid
+  contactId          String         @map("contact_id") @db.Uuid
+  status             ProposalStatus @default(DRAFT)
+  // Public token hash for the customer portal signed link.
+  publicTokenHash    String         @unique @map("public_token_hash")
+  currentVersionId   String?        @map("current_version_id") @db.Uuid
+  generatedByAi      Boolean        @default(false) @map("generated_by_ai")
+  aiConfidence       Int?           @map("ai_confidence")
+  sentAt             DateTime?      @map("sent_at")
+  viewedAt           DateTime?      @map("viewed_at")
+  acceptedAt         DateTime?      @map("accepted_at")
+  rejectedAt         DateTime?      @map("rejected_at")
+  expiresAt          DateTime?      @map("expires_at")
+  rejectionReason    String?        @map("rejection_reason")
+  createdBy          String?        @map("created_by") @db.Uuid
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  org      Org               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  creator  User?             @relation("ProposalCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  versions ProposalVersion[]
+
+  @@index([orgId, leadId])
+  @@index([orgId, status, createdAt])
+  @@index([orgId, contactId])
+  @@map("proposals")
+}
+
+model ProposalVersion {
+  id           String   @id @default(uuid()) @db.Uuid
+  orgId        String   @map("org_id") @db.Uuid
+  proposalId   String   @map("proposal_id") @db.Uuid
+  version      Int
+  // Frozen snapshot: lineItems, totals, terms, deposit, contact info,
+  // measurements referenced. We never mutate a version after publish; new
+  // edits create a new version.
+  snapshot     Json
+  totalCents   BigInt   @map("total_cents")
+  depositCents BigInt   @map("deposit_cents")
+  taxRateBps   Int      @map("tax_rate_bps")
+  createdBy    String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  org      Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  proposal Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, version])
+  @@index([orgId, proposalId, version])
+  @@map("proposal_versions")
 }

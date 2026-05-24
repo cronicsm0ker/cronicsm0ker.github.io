@@ -7,3 +7,7 @@ export * from './lead.js';
 export * from './activity.js';
 export * from './messaging.js';
 export * from './channel.js';
+export * from './price-book.js';
+export * from './asset.js';
+export * from './measurement.js';
+export * from './proposal.js';
